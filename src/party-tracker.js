@@ -1,4 +1,5 @@
 import { normalizeAccountId } from './account-id.js';
+import { createOpenDotaFetch } from './opendota-fetch.js';
 
 const OPENDOTA_MATCH_URL = 'https://api.opendota.com/api/matches';
 const OPENDOTA_PLAYER_MATCHES_URL = 'https://api.opendota.com/api/players';
@@ -10,13 +11,18 @@ function isRankedMatch(match) {
 }
 
 export class PartyTracker {
-  constructor({ statsStore, onChange }) {
+  constructor({ statsStore, onChange, getProxyConfig }) {
     this.statsStore = statsStore;
     this.onChange = onChange || (() => {});
+    this.getProxyConfig = getProxyConfig || (() => null);
     this.pendingMatches = new Map();
     this.lastProcessedMatchId = null;
     this.lastProcessedAt = null;
     this.lastError = null;
+  }
+
+  fetchOpenDota(url, options) {
+    return createOpenDotaFetch(this.getProxyConfig())(url, options);
   }
 
   restoreFromStore() {
@@ -61,7 +67,7 @@ export class PartyTracker {
     }
 
     const requested = Math.min(Math.max(1, Math.floor(Number(count) || 1)), 100);
-    const matches = await fetchRankedPlayerMatchHistory(id, requested);
+    const matches = await fetchRankedPlayerMatchHistory(id, requested, (url, options) => this.fetchOpenDota(url, options));
 
     let enqueued = 0;
     let skipped = 0;
@@ -140,7 +146,7 @@ export class PartyTracker {
       item.attempts += 1;
 
       try {
-        const outcome = await processMatch(item);
+        const outcome = await processMatch(item, (url, options) => this.fetchOpenDota(url, options));
         if (outcome.status === 'processed') {
           if (outcome.allies.length) {
             this.statsStore.recordPartyResult({
@@ -212,8 +218,8 @@ export class PartyTracker {
   }
 }
 
-async function processMatch(item) {
-  const response = await fetch(`${OPENDOTA_MATCH_URL}/${item.matchId}`, {
+async function processMatch(item, fetchFn) {
+  const response = await fetchFn(`${OPENDOTA_MATCH_URL}/${item.matchId}`, {
     headers: { accept: 'application/json' }
   });
 
@@ -274,12 +280,12 @@ async function processMatch(item) {
   return { status: 'processed', allies, matchPlayedAt };
 }
 
-async function fetchRankedPlayerMatchHistory(accountId, count) {
+async function fetchRankedPlayerMatchHistory(accountId, count, fetchFn) {
   const ranked = [];
   let offset = 0;
 
   while (ranked.length < count) {
-    const response = await fetch(
+    const response = await fetchFn(
       `${OPENDOTA_PLAYER_MATCHES_URL}/${accountId}/matches?limit=100&offset=${offset}`,
       { headers: { accept: 'application/json' } }
     );

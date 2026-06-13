@@ -25,7 +25,15 @@ const els = {
   resetForm: document.querySelector('#resetForm'),
   resetConfirmCheck: document.querySelector('#resetConfirmCheck'),
   resetConfirmText: document.querySelector('#resetConfirmText'),
-  resetCancel: document.querySelector('#resetCancel')
+  resetCancel: document.querySelector('#resetCancel'),
+  openSettings: document.querySelector('#openSettings'),
+  settingsDialog: document.querySelector('#settingsDialog'),
+  settingsForm: document.querySelector('#settingsForm'),
+  proxyHost: document.querySelector('#proxyHost'),
+  proxyPort: document.querySelector('#proxyPort'),
+  proxyLogin: document.querySelector('#proxyLogin'),
+  proxyPass: document.querySelector('#proxyPass'),
+  settingsCancel: document.querySelector('#settingsCancel')
 };
 
 let snapshot = null;
@@ -325,6 +333,50 @@ els.resetStats.addEventListener('click', () => {
   els.resetConfirmCheck.checked = false;
   els.resetConfirmText.value = '';
   els.resetDialog.showModal();
+});
+
+function fillSettingsForm(proxy = {}) {
+  els.proxyHost.value = proxy.host || '';
+  els.proxyPort.value = proxy.port || '';
+  els.proxyLogin.value = proxy.login || '';
+  els.proxyPass.value = proxy.pass || '';
+}
+
+els.openSettings.addEventListener('click', () => {
+  fillSettingsForm(snapshot?.config?.proxy);
+  els.settingsDialog.showModal();
+});
+
+els.settingsCancel.addEventListener('click', () => els.settingsDialog.close());
+
+els.settingsForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const host = els.proxyHost.value.trim();
+  const port = els.proxyPort.value.trim();
+  const login = els.proxyLogin.value.trim();
+  const pass = els.proxyPass.value;
+
+  if ((host && !port) || (!host && port)) {
+    alert('Укажите и IP, и порт прокси, либо оставьте оба поля пустыми');
+    return;
+  }
+
+  if (port) {
+    const portNum = Number(port);
+    if (!Number.isFinite(portNum) || portNum < 1 || portNum > 65535) {
+      alert('Порт должен быть от 1 до 65535');
+      return;
+    }
+  }
+
+  try {
+    await api('/api/config', {
+      proxy: { host, port, login, pass }
+    });
+    els.settingsDialog.close();
+  } catch (error) {
+    alert(error.message);
+  }
 });
 
 els.resetCancel.addEventListener('click', () => els.resetDialog.close());

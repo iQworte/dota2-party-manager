@@ -1,6 +1,6 @@
 {
   "name": "dota2-party-manager",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Dota2 Party Manager — статистика побед и поражений с напарниками из пати.",
   "type": "module",
@@ -18,7 +18,8 @@
   },
   "license": "MIT",
   "dependencies": {
-    "bootstrap-icons": "^1.13.1"
+    "bootstrap-icons": "^1.13.1",
+    "https-proxy-agent": "^7.0.6"
   },
   "devDependencies": {
     "electron": "^35.0.0",
@@ -36,7 +37,11 @@
       "src/**/*",
       "public/**/*",
       "package.json",
-      "node_modules/bootstrap-icons/**/*"
+      "node_modules/bootstrap-icons/**/*",
+      "node_modules/https-proxy-agent/**/*",
+      "node_modules/agent-base/**/*",
+      "node_modules/debug/**/*",
+      "node_modules/ms/**/*"
     ],
     "asarUnpack": [
       "node_modules/bootstrap-icons/**"

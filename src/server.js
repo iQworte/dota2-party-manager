@@ -11,6 +11,7 @@ import {
   refreshGsiConnection
 } from './gsi-handler.js';
 import { PartyTracker } from './party-tracker.js';
+import { normalizeProxyConfig } from './opendota-fetch.js';
 import { StatsStore } from './stats-store.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -29,7 +30,8 @@ const defaultConfig = {
     installPath: '',
     cfgDir: '',
     detectionSource: ''
-  }
+  },
+  proxy: normalizeProxyConfig()
 };
 
 const runtime = {
@@ -43,7 +45,8 @@ const runtime = {
 const statsStore = new StatsStore(statsPath);
 const partyTracker = new PartyTracker({
   statsStore,
-  onChange: () => broadcast()
+  onChange: () => broadcast(),
+  getProxyConfig: () => runtime.config.proxy
 });
 
 let serverInstance = null;
@@ -87,6 +90,7 @@ function normalizeConfig(config) {
   next.dota.installPath = String(next.dota.installPath || '');
   next.dota.cfgDir = String(next.dota.cfgDir || '');
   next.dota.detectionSource = String(next.dota.detectionSource || '');
+  next.proxy = normalizeProxyConfig(next.proxy);
   return next;
 }
 
@@ -294,6 +298,9 @@ async function updateConfigApi(req, res) {
     runtime.config.dota.installPath = String(body.dota.installPath || runtime.config.dota.installPath || '').trim();
     runtime.config.dota.cfgDir = String(body.dota.cfgDir || runtime.config.dota.cfgDir || '').trim();
     runtime.config.dota.detectionSource = 'manual';
+  }
+  if (body?.proxy) {
+    runtime.config.proxy = normalizeProxyConfig(body.proxy);
   }
   await persistConfig();
   broadcast();

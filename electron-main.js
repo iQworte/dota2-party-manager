@@ -1,6 +1,18 @@
 import electron from 'electron';
 import { dirname, join } from 'node:path';
 
+if (!process.versions.electron) {
+  console.error(
+    'Этот файл нужно запускать через Electron, а не через Node.js.\n'
+    + 'Используйте:\n'
+    + '  npm start\n'
+    + '  npm run start:dev\n'
+    + 'Или только сервер без окна:\n'
+    + '  npm run dev:server'
+  );
+  process.exit(1);
+}
+
 const { app, BrowserWindow } = electron;
 
 let mainWindow = null;

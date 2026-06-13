@@ -13,7 +13,12 @@
       <h1>Dota2 Party Manager</h1>
       <p class="muted">Статистика побед и поражений с напарниками из пати в ranked</p>
     </div>
-    <div id="gsiStatus" class="pill bad">GSI не подключён</div>
+    <div class="topbar-status">
+      <div id="gsiStatus" class="pill bad">GSI не подключён</div>
+      <button id="openSettings" type="button" class="icon-btn settings-btn" title="Настройки" aria-label="Настройки">
+        <i class="bi bi-gear"></i>
+      </button>
+    </div>
   </header>
 
   <main class="layout">
@@ -78,6 +83,37 @@
       </div>
     </section>
   </main>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" id="settingsForm">
+      <h3>Настройки</h3>
+      <p class="muted">Прокси для запросов к OpenDota API. Оставьте поля пустыми, чтобы обращаться напрямую.</p>
+      <div class="field-row field-row-70-30">
+        <label class="field">
+          <span>IP прокси</span>
+          <input id="proxyHost" type="text" placeholder="127.0.0.1" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Порт</span>
+          <input id="proxyPort" type="number" min="1" max="65535" step="1" placeholder="8080">
+        </label>
+      </div>
+      <div class="field-row field-row-50-50">
+        <label class="field">
+          <span>Логин (опционально)</span>
+          <input id="proxyLogin" type="text" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Пароль (опционально)</span>
+          <input id="proxyPass" type="password" autocomplete="off">
+        </label>
+      </div>
+      <div class="row end">
+        <button type="button" id="settingsCancel">Отмена</button>
+        <button type="submit" class="primary">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="editDialog">
     <form method="dialog" id="editForm">

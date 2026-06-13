@@ -117,6 +117,29 @@ h1, h2, h3, p {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+}
+
+.field-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.field-row .field {
+  flex: 1 1 0;
+}
+
+.field-row-70-30 .field:first-child {
+  flex: 7 1 0;
+}
+
+.field-row-70-30 .field:last-child {
+  flex: 3 1 0;
+}
+
+.field-row-50-50 .field {
+  flex: 1 1 0;
 }
 
 .field span,
@@ -125,9 +148,20 @@ h1, h2, h3, p {
   color: var(--muted);
 }
 
+.topbar-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-btn {
+  flex-shrink: 0;
+}
+
 input[type="text"],
 input[type="search"],
-input[type="number"] {
+input[type="number"],
+input[type="password"] {
   width: 100%;
   padding: 10px 12px;
   border-radius: 8px;
@@ -369,7 +403,8 @@ dialog::backdrop {
 
 #importForm,
 #resetForm,
-#editForm {
+#editForm,
+#settingsForm {
   gap: 10px;
   display: flex;
   flex-direction: column;
