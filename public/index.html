@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dota2 Party Manager</title>
+  <link rel="stylesheet" href="/bootstrap-icons/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Dota2 Party Manager</h1>
+      <p class="muted">Статистика побед и поражений с напарниками из пати в ranked</p>
+    </div>
+    <div id="gsiStatus" class="pill bad">GSI не подключён</div>
+  </header>
+
+  <main class="layout">
+    <section class="panel">
+      <h2>Интеграция с Dota 2</h2>
+      <p class="muted">GSI встроен в Dota 2. Приложение устанавливает cfg-файл, который отправляет состояние игры на локальный сервер.</p>
+
+      <label class="field">
+        <span>Папка Dota 2</span>
+        <input id="dotaPath" type="text" placeholder="C:\SteamLibrary\steamapps\common\dota 2 beta">
+      </label>
+
+      <div class="row row-dota-actions">
+        <button id="detectDota" type="button">Найти Dota</button>
+        <button id="installGsi" type="button" class="primary">Установить GSI</button>
+      </div>
+      <div class="info-grid">
+        <div>
+          <span class="label">Текущий аккаунт</span>
+          <strong id="currentAccount">—</strong>
+        </div>
+        <div>
+          <span class="label">Последний матч</span>
+          <strong id="lastMatch">—</strong>
+        </div>
+        <div>
+          <span class="label">Очередь обработки</span>
+          <strong id="pendingCount">0</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel panel-wide">
+      <div class="panel-head">
+        <label class="field search-field">
+          <span>Поиск по нику или ID</span>
+          <input id="searchInput" type="search" placeholder="Например: PlayerNick или 123456789">
+        </label>
+
+        <div class="panel-actions">
+          <button id="importMatches" type="button" disabled title="Доступно при подключённом GSI">Импорт последних матчей</button>
+          <button id="resetStats" type="button" class="danger">Сбросить всю статистику</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ник</th>
+              <th>Dota ID</th>
+              <th>W/L</th>
+              <th>Winrate</th>
+              <th>Последний матч</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody id="playersBody">
+            <tr><td colspan="6" class="empty">Нет данных</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="editDialog">
+    <form method="dialog" id="editForm">
+      <h3>Редактировать статистику</h3>
+      <p id="editPlayerLabel" class="muted"></p>
+      <label class="field">
+        <span>Ник (только отображение)</span>
+        <input id="editName" type="text">
+      </label>
+      <label class="field">
+        <span>Победы</span>
+        <input id="editWins" type="number" min="0" step="1">
+      </label>
+      <label class="field">
+        <span>Поражения</span>
+        <input id="editLosses" type="number" min="0" step="1">
+      </label>
+      <div class="row end">
+        <button type="button" id="editCancel">Отмена</button>
+        <button type="submit" class="primary">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="importDialog">
+    <form method="dialog" id="importForm">
+      <h3>Импорт последних матчей</h3>
+      <p class="muted">Последние ranked-матчи текущего аккаунта из OpenDota будут добавлены в очередь. Нерейтинговые и уже учтённые матчи пропускаются.</p>
+      <label class="field">
+        <span>Количество ranked-матчей</span>
+        <input id="importCount" type="number" min="1" max="100" step="1" value="20">
+      </label>
+      <div class="row end">
+        <button type="button" id="importCancel">Отмена</button>
+        <button type="submit" class="primary">Добавить в очередь</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="resetDialog">
+    <form method="dialog" id="resetForm">
+      <h3>Сброс всей статистики</h3>
+      <p class="muted">Будут удалены все игроки и вся история побед/поражений. Это действие нельзя отменить.</p>
+      <label class="checkbox">
+        <input id="resetConfirmCheck" type="checkbox">
+        <span>Я понимаю, что все данные будут удалены</span>
+      </label>
+      <label class="field">
+        <span>Введите СБРОС для подтверждения</span>
+        <input id="resetConfirmText" type="text" autocomplete="off">
+      </label>
+      <div class="row end">
+        <button type="button" id="resetCancel">Отмена</button>
+        <button type="submit" class="danger">Сбросить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>

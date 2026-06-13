@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.idea/
+.release-notes.md
+data/config.json
+data/stats.json

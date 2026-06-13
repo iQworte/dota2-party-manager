@@ -1,0 +1,58 @@
+{
+  "name": "dota2-party-manager",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dota2 Party Manager — статистика побед и поражений с напарниками из пати.",
+  "type": "module",
+  "main": "electron-main.js",
+  "author": "Dota2 Party Manager",
+  "scripts": {
+    "start": "electron .",
+    "start:dev": "set ELECTRON_DEV=1&& electron .",
+    "dev:server": "node src/server.js",
+    "check": "node --check src/server.js && node --check electron-main.js",
+    "build:win": "electron-builder --win portable"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "bootstrap-icons": "^1.13.1"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.dota2partymanager.app",
+    "productName": "Dota2 Party Manager",
+    "copyright": "Copyright © 2026 Dota2 Party Manager",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron-main.js",
+      "src/**/*",
+      "public/**/*",
+      "package.json",
+      "node_modules/bootstrap-icons/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/bootstrap-icons/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "Dota2PartyManager-Portable-${version}.${ext}"
+    }
+  }
+}
