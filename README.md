@@ -2,6 +2,10 @@
 
 Desktop-приложение для Windows: ведёт статистику побед и поражений с **напарниками из пати** в **ranked**-матчах Dota 2.
 
+## Скачать
+
+Готовая portable-версия для Windows: [v1.0.0](https://github.com/iQworte/dota2-party-manager/releases/latest)
+
 ## Сборка (portable)
 
 Готовый файл после сборки:
