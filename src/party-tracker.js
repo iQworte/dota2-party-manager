@@ -4,6 +4,8 @@ import { createOpenDotaFetch } from './opendota-fetch.js';
 const OPENDOTA_MATCH_URL = 'https://api.opendota.com/api/matches';
 const OPENDOTA_PLAYER_MATCHES_URL = 'https://api.opendota.com/api/players';
 const OPENDOTA_RANKED_LOBBY_TYPE = 7;
+const MAX_IMPORT_MATCHES = 500;
+const MATCHES_PAGE_SIZE = 100;
 const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000];
 
 function isRankedMatch(match) {
@@ -11,10 +13,11 @@ function isRankedMatch(match) {
 }
 
 export class PartyTracker {
-  constructor({ statsStore, onChange, getProxyConfig }) {
+  constructor({ statsStore, onChange, getProxyConfig, activityLog }) {
     this.statsStore = statsStore;
     this.onChange = onChange || (() => {});
     this.getProxyConfig = getProxyConfig || (() => null);
+    this.activityLog = activityLog || null;
     this.pendingMatches = new Map();
     this.lastProcessedMatchId = null;
     this.lastProcessedAt = null;
@@ -60,14 +63,30 @@ export class PartyTracker {
     this.statsStore.setPendingMatches([]);
   }
 
-  async importRecentMatches({ accountId, count }) {
+  async importRecentMatches({ accountId, count, onHistoryProgress }) {
     const id = normalizeAccountId(accountId);
     if (!id) {
       throw new Error('Некорректный Dota ID');
     }
 
-    const requested = Math.min(Math.max(1, Math.floor(Number(count) || 1)), 100);
-    const matches = await fetchRankedPlayerMatchHistory(id, requested, (url, options) => this.fetchOpenDota(url, options));
+    const requested = Math.min(Math.max(1, Math.floor(Number(count) || 1)), MAX_IMPORT_MATCHES);
+    const fetchFn = (url, options) => this.fetchOpenDota(url, options);
+    const playerProfile = await fetchPlayerProfile(id, fetchFn, this.activityLog);
+    const historyUnavailable = isMatchHistoryUnavailable(playerProfile);
+    const matches = await fetchRankedPlayerMatchHistory(
+      id,
+      requested,
+      fetchFn,
+      this.activityLog,
+      onHistoryProgress
+    );
+
+    if (!matches.length && historyUnavailable) {
+      throw new Error(
+        'История матчей недоступна: в Dota 2 отключена опция «Expose Public Match Data». '
+        + 'Включите её в клиенте: Настройки → Социальное.'
+      );
+    }
 
     let enqueued = 0;
     let skipped = 0;
@@ -92,6 +111,15 @@ export class PartyTracker {
     }
 
     return { requested, enqueued, skipped, fetched: matches.length };
+  }
+
+  logQueueEnqueue({ matchId, result, source = 'gsi' }) {
+    const label = result === 'win' ? 'победа' : 'поражение';
+    const prefix = source === 'import' ? 'Импорт' : 'Матч завершён';
+    this.activityLog?.add(
+      `${prefix}: ${matchId} (${label}), добавлен в очередь обработки`,
+      { category: 'queue', level: 'success' }
+    );
   }
 
   getPendingMatches() {
@@ -146,7 +174,7 @@ export class PartyTracker {
       item.attempts += 1;
 
       try {
-        const outcome = await processMatch(item, (url, options) => this.fetchOpenDota(url, options));
+        const outcome = await processMatch(item, (url, options) => this.fetchOpenDota(url, options), this.activityLog);
         if (outcome.status === 'processed') {
           if (outcome.allies.length) {
             this.statsStore.recordPartyResult({
@@ -155,8 +183,16 @@ export class PartyTracker {
               matchId,
               matchPlayedAt: outcome.matchPlayedAt
             });
+            this.activityLog?.add(
+              `Матч ${matchId} обработан: ${outcome.allies.length} напарник(ов), ${item.result === 'win' ? 'победа' : 'поражение'}`,
+              { category: 'queue', level: 'success' }
+            );
           } else {
             this.statsStore.markMatchProcessed(matchId);
+            this.activityLog?.add(
+              `Матч ${matchId} обработан без пати`,
+              { category: 'queue', level: 'info' }
+            );
           }
 
           this.pendingMatches.delete(matchId);
@@ -171,6 +207,12 @@ export class PartyTracker {
         }
 
         if (outcome.status === 'retry') {
+          if (item.attempts === 1) {
+            this.activityLog?.add(
+              `OpenDota: матч ${matchId} ещё не готов, повтор запроса позже`,
+              { category: 'opendota', level: 'warn' }
+            );
+          }
           const delay = RETRY_DELAYS_MS[Math.min(item.attempts - 1, RETRY_DELAYS_MS.length - 1)];
           item.nextAttemptAt = Date.now() + delay;
           workLeft = true;
@@ -186,6 +228,12 @@ export class PartyTracker {
         this.onChange();
       } catch (error) {
         this.lastError = error.message;
+        if (item.attempts === 1) {
+          this.activityLog?.add(
+            `OpenDota: ошибка обработки матча ${matchId} — ${error.message}`,
+            { category: 'opendota', level: 'error' }
+          );
+        }
         const delay = RETRY_DELAYS_MS[Math.min(item.attempts - 1, RETRY_DELAYS_MS.length - 1)];
         item.nextAttemptAt = Date.now() + delay;
         workLeft = true;
@@ -218,20 +266,51 @@ export class PartyTracker {
   }
 }
 
-async function processMatch(item, fetchFn) {
-  const response = await fetchFn(`${OPENDOTA_MATCH_URL}/${item.matchId}`, {
-    headers: { accept: 'application/json' }
-  });
+function shortOpenDotaPath(url) {
+  return String(url).replace('https://api.opendota.com/api/', '');
+}
 
-  if (response.status === 404 || response.status === 202) {
-    return { status: 'retry' };
+async function openDotaGet(url, fetchFn, activityLog) {
+  const shortPath = shortOpenDotaPath(url);
+  const response = await fetchFn(url, { headers: { accept: 'application/json' } });
+  const status = response.status;
+
+  if (status === 404 || status === 202) {
+    activityLog?.add(`OpenDota GET ${shortPath}: HTTP ${status}`, { category: 'opendota', level: 'warn' });
+    return { response, data: null, status };
   }
 
   if (!response.ok) {
-    throw new Error(`OpenDota HTTP ${response.status}`);
+    activityLog?.add(`OpenDota GET ${shortPath}: HTTP ${status}`, { category: 'opendota', level: 'error' });
+    throw new Error(`OpenDota HTTP ${status}`);
   }
 
-  const match = await response.json();
+  const data = await response.json();
+  let detail = `HTTP ${status}`;
+
+  if (Array.isArray(data)) {
+    detail += `, записей: ${data.length}`;
+  } else if (data?.profile?.account_id) {
+    detail += `, аккаунт ${data.profile.account_id}`;
+  } else if (data?.match_id) {
+    detail += `, матч ${data.match_id}, игроков: ${Array.isArray(data.players) ? data.players.length : 0}`;
+  }
+
+  activityLog?.add(`OpenDota GET ${shortPath}: ${detail}`, { category: 'opendota', level: 'success' });
+  return { response, data, status };
+}
+
+async function processMatch(item, fetchFn, activityLog) {
+  const { data: match, status } = await openDotaGet(
+    `${OPENDOTA_MATCH_URL}/${item.matchId}`,
+    fetchFn,
+    activityLog
+  );
+
+  if (status === 404 || status === 202) {
+    return { status: 'retry' };
+  }
+
   const players = Array.isArray(match?.players) ? match.players : [];
   if (!players.length) {
     return { status: 'retry' };
@@ -280,22 +359,47 @@ async function processMatch(item, fetchFn) {
   return { status: 'processed', allies, matchPlayedAt };
 }
 
-async function fetchRankedPlayerMatchHistory(accountId, count, fetchFn) {
+async function fetchPlayerProfile(accountId, fetchFn, activityLog) {
+  const { data, status } = await openDotaGet(
+    `${OPENDOTA_PLAYER_MATCHES_URL}/${accountId}`,
+    fetchFn,
+    activityLog
+  );
+
+  if (status === 404) {
+    throw new Error('Игрок с таким Dota ID не найден в OpenDota');
+  }
+
+  return data;
+}
+
+function isMatchHistoryUnavailable(player) {
+  const profile = player?.profile && typeof player.profile === 'object' ? player.profile : {};
+  if (profile.is_pro) return false;
+  return Boolean(profile.fh_unavailable);
+}
+
+async function fetchRankedPlayerMatchHistory(accountId, count, fetchFn, activityLog, onProgress) {
   const ranked = [];
   let offset = 0;
+  let completed = 0;
+  let total = Math.max(1, Math.ceil(count / MATCHES_PAGE_SIZE));
+
+  const report = () => onProgress?.(completed, total);
+  report();
 
   while (ranked.length < count) {
-    const response = await fetchFn(
-      `${OPENDOTA_PLAYER_MATCHES_URL}/${accountId}/matches?limit=100&offset=${offset}`,
-      { headers: { accept: 'application/json' } }
+    const { data: batch } = await openDotaGet(
+      `${OPENDOTA_PLAYER_MATCHES_URL}/${accountId}/matches?limit=${MATCHES_PAGE_SIZE}&offset=${offset}`,
+      fetchFn,
+      activityLog
     );
 
-    if (!response.ok) {
-      throw new Error(`OpenDota HTTP ${response.status}`);
-    }
+    completed += 1;
 
-    const batch = await response.json();
     if (!Array.isArray(batch) || batch.length === 0) {
+      total = completed;
+      report();
       break;
     }
 
@@ -306,6 +410,19 @@ async function fetchRankedPlayerMatchHistory(accountId, count, fetchFn) {
     }
 
     offset += batch.length;
+
+    if (ranked.length >= count) {
+      total = completed;
+      report();
+      break;
+    }
+
+    if (batch.length === MATCHES_PAGE_SIZE) {
+      total = Math.max(total, completed + 1);
+    } else {
+      total = completed;
+    }
+    report();
   }
 
   return ranked.slice(0, count);

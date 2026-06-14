@@ -12,7 +12,9 @@ const els = {
   importDialog: document.querySelector('#importDialog'),
   importForm: document.querySelector('#importForm'),
   importCount: document.querySelector('#importCount'),
+  importAccountId: document.querySelector('#importAccountId'),
   importCancel: document.querySelector('#importCancel'),
+  importSubmit: document.querySelector('#importSubmit'),
   resetStats: document.querySelector('#resetStats'),
   editDialog: document.querySelector('#editDialog'),
   editForm: document.querySelector('#editForm'),
@@ -33,13 +35,20 @@ const els = {
   proxyPort: document.querySelector('#proxyPort'),
   proxyLogin: document.querySelector('#proxyLogin'),
   proxyPass: document.querySelector('#proxyPass'),
-  settingsCancel: document.querySelector('#settingsCancel')
+  settingsCancel: document.querySelector('#settingsCancel'),
+  openActivityLog: document.querySelector('#openActivityLog'),
+  activityLogDialog: document.querySelector('#activityLogDialog'),
+  activityLogList: document.querySelector('#activityLogList'),
+  activityLogClose: document.querySelector('#activityLogClose')
 };
 
 let snapshot = null;
 let searchTimer = null;
 let editingAccountId = null;
 let lastTableKey = '';
+let lastActivityLogKey = '';
+let activityLogDialogOpen = false;
+let importInProgress = false;
 
 async function api(path, body = null, method = body ? 'POST' : 'GET') {
   const response = await fetch(path, {
@@ -173,14 +182,65 @@ function renderStatus(state) {
 
   els.lastMatch.textContent = tracker.lastProcessedMatchId || '—';
   els.pendingCount.textContent = String((tracker.pendingMatches || []).length);
+}
 
-  const gsiReady = Boolean(gsi.connected && gsi.localAccountId);
-  els.importMatches.disabled = !gsiReady;
+function formatLogTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function activityLogKey(entries) {
+  return (entries || []).map((entry) => `${entry.id}:${entry.message}`).join('|');
+}
+
+function renderActivityLog(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  if (!list.length) {
+    els.activityLogList.innerHTML = '<div class="activity-log-empty">Пока нет записей</div>';
+    return;
+  }
+
+  els.activityLogList.innerHTML = list.map((entry) => `
+    <div class="activity-log-entry">
+      <span class="activity-log-time">${escapeHtml(formatLogTime(entry.at))}</span>
+      <span class="activity-log-message ${escapeAttr(entry.level || 'info')}">${escapeHtml(entry.message)}</span>
+    </div>
+  `).join('');
+}
+
+function setImportBusy(busy, progress = null) {
+  importInProgress = busy;
+  els.importAccountId.disabled = busy;
+  els.importCount.disabled = busy;
+  els.importCancel.disabled = busy;
+  els.importSubmit.disabled = busy;
+
+  if (!busy) {
+    els.importSubmit.textContent = 'Добавить в очередь';
+    return;
+  }
+
+  const current = Number(progress?.current || 0);
+  const total = Number(progress?.total || 0);
+  els.importSubmit.textContent = total > 0
+    ? `Загрузка (${current}/${total})`
+    : 'Загрузка...';
 }
 
 function renderState(state) {
   snapshot = state;
   renderStatus(state);
+
+  if (importInProgress && state.importProgress?.active) {
+    setImportBusy(true, state.importProgress);
+  }
+
+  const logKey = activityLogKey(state.activityLog);
+  if (activityLogDialogOpen && logKey !== lastActivityLogKey) {
+    lastActivityLogKey = logKey;
+    renderActivityLog(state.activityLog);
+  }
 
   const query = els.searchInput.value.trim().toLowerCase();
   const players = buildPlayersList(state, query);
@@ -300,31 +360,59 @@ els.editForm.addEventListener('submit', async (event) => {
 });
 
 els.importMatches.addEventListener('click', () => {
-  if (els.importMatches.disabled) return;
+  const gsi = snapshot?.gsi || {};
+  els.importAccountId.value = gsi.connected && gsi.localAccountId ? String(gsi.localAccountId) : '';
   els.importCount.value = '20';
+  setImportBusy(false);
   els.importDialog.showModal();
 });
 
-els.importCancel.addEventListener('click', () => els.importDialog.close());
+els.importDialog.addEventListener('cancel', (event) => {
+  if (importInProgress) event.preventDefault();
+});
+
+els.importCancel.addEventListener('click', () => {
+  if (importInProgress) return;
+  els.importDialog.close();
+});
 
 els.importForm.addEventListener('submit', async (event) => {
   event.preventDefault();
+  if (importInProgress) return;
+
+  const accountId = els.importAccountId.value.trim();
   const count = Number(els.importCount.value);
-  if (!Number.isFinite(count) || count < 1 || count > 100) {
-    alert('Укажите число матчей от 1 до 100');
+  if (!accountId) {
+    alert('Укажите Dota ID');
     return;
   }
+  if (!Number.isFinite(count) || count < 1 || count > 500) {
+    alert('Укажите число матчей от 1 до 500');
+    return;
+  }
+
+  const estimatedPages = Math.max(1, Math.ceil(count / 100));
+  setImportBusy(true, { current: 0, total: estimatedPages });
+
   try {
-    const result = await api('/api/queue/import-recent', { count });
+    const result = await api('/api/queue/import-recent', { accountId, count });
+    setImportBusy(false);
     els.importDialog.close();
     alert(
-      `Запрошено: ${result.requested}\n`
+      `Dota ID: ${accountId}\n`
+      + `Запрошено: ${result.requested}\n`
       + `Добавлено в очередь: ${result.enqueued}\n`
       + `Пропущено (уже учтены): ${result.skipped}\n`
       + `Получено из OpenDota: ${result.fetched}`
-      + (result.fetched < result.requested ? '\n\nВ OpenDota найдено меньше ranked-матчей, чем запрошено.' : '')
+      + (result.fetched < result.requested
+        ? '\n\nВ OpenDota найдено меньше ranked-матчей, чем запрошено.'
+        : '')
+      + (result.fetched === 0
+        ? '\n\nЕсли матчей нет, проверьте, что в Dota 2 включена опция «Expose Public Match Data» (Настройки → Социальное).'
+        : '')
     );
   } catch (error) {
+    setImportBusy(false);
     alert(error.message);
   }
 });
@@ -345,6 +433,22 @@ function fillSettingsForm(proxy = {}) {
 els.openSettings.addEventListener('click', () => {
   fillSettingsForm(snapshot?.config?.proxy);
   els.settingsDialog.showModal();
+});
+
+els.openActivityLog.addEventListener('click', () => {
+  activityLogDialogOpen = true;
+  lastActivityLogKey = activityLogKey(snapshot?.activityLog);
+  renderActivityLog(snapshot?.activityLog);
+  els.activityLogDialog.showModal();
+});
+
+els.activityLogClose.addEventListener('click', () => {
+  activityLogDialogOpen = false;
+  els.activityLogDialog.close();
+});
+
+els.activityLogDialog.addEventListener('close', () => {
+  activityLogDialogOpen = false;
 });
 
 els.settingsCancel.addEventListener('click', () => els.settingsDialog.close());

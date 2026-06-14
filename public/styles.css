@@ -41,13 +41,33 @@ h1, h2, h3, p {
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
   padding: 20px 24px;
   border-bottom: 1px solid var(--panel-border);
   background: #121820;
+}
+
+.topbar-leading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-leading .icon-btn {
+  width: 48px;
+  height: 48px;
+}
+
+.topbar-leading .icon-btn .bi {
+  font-size: 1.425rem;
+}
+
+.topbar-title {
+  min-width: 0;
 }
 
 .topbar h1 {
@@ -152,10 +172,71 @@ h1, h2, h3, p {
   display: flex;
   align-items: center;
   gap: 10px;
+  justify-self: end;
 }
 
-.settings-btn {
+#activityLogDialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+#activityLogPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.activity-log-list {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--input);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.activity-log-entry {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.activity-log-time {
+  color: var(--muted);
   flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  min-width: 64px;
+}
+
+.activity-log-message {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.activity-log-message.info {
+  color: var(--text);
+}
+
+.activity-log-message.success {
+  color: var(--ok);
+}
+
+.activity-log-message.warn {
+  color: var(--winrate-mid);
+}
+
+.activity-log-message.error {
+  color: var(--bad);
+}
+
+.activity-log-empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 24px 12px;
 }
 
 input[type="text"],

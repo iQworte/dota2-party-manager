@@ -12,6 +12,7 @@ import {
 } from './gsi-handler.js';
 import { PartyTracker } from './party-tracker.js';
 import { normalizeProxyConfig } from './opendota-fetch.js';
+import { ActivityLog } from './activity-log.js';
 import { StatsStore } from './stats-store.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -39,14 +40,22 @@ const runtime = {
   gsi: createInitialGsiState(),
   lastScoredMatchId: null,
   clients: new Set(),
-  startedAt: new Date().toISOString()
+  startedAt: new Date().toISOString(),
+  importProgress: { active: false, current: 0, total: 0 }
 };
 
 const statsStore = new StatsStore(statsPath);
+const activityLog = new ActivityLog({
+  onChange: () => {
+    lastBroadcastKey = '';
+    broadcast();
+  }
+});
 const partyTracker = new PartyTracker({
   statsStore,
   onChange: () => broadcast(),
-  getProxyConfig: () => runtime.config.proxy
+  getProxyConfig: () => runtime.config.proxy,
+  activityLog
 });
 
 let serverInstance = null;
@@ -107,7 +116,9 @@ function publicState() {
     config: runtime.config,
     gsi: runtime.gsi,
     tracker: partyTracker.snapshot(),
-    stats: statsStore.snapshot()
+    stats: statsStore.snapshot(),
+    activityLog: activityLog.snapshot(),
+    importProgress: runtime.importProgress
   };
 }
 
@@ -123,7 +134,9 @@ function broadcastStateKey(state) {
       localDisplayName: state.gsi.localDisplayName
     },
     tracker: state.tracker,
-    stats: state.stats
+    stats: state.stats,
+    activityLog: state.activityLog,
+    importProgress: state.importProgress
   });
 }
 
@@ -246,6 +259,11 @@ async function handleGsi(req, res) {
   if (scored?.localAccountId) {
     runtime.lastScoredMatchId = scored.matchId;
     partyTracker.enqueueMatch(scored);
+    partyTracker.logQueueEnqueue({
+      matchId: scored.matchId,
+      result: scored.result,
+      source: 'gsi'
+    });
   }
 
   broadcast();
@@ -343,31 +361,58 @@ async function resetStatsApi(req, res) {
   statsStore.resetAll();
   partyTracker.clearQueue();
   await statsStore.save();
+  activityLog.add('Статистика и очередь полностью сброшены', { category: 'reset', level: 'warn' });
   broadcast();
   sendJson(res, { ok: true });
 }
 
 async function importRecentMatchesApi(req, res) {
-  runtime.gsi = refreshGsiConnection(runtime.gsi);
-  if (!runtime.gsi.connected || !runtime.gsi.localAccountId) {
-    return sendJson(res, { ok: false, error: 'GSI не подключён' }, 400);
-  }
-
   const body = await readBody(req);
   const count = Number(body?.count);
-  if (!Number.isFinite(count) || count < 1 || count > 100) {
-    return sendJson(res, { ok: false, error: 'Укажите число матчей от 1 до 100' }, 400);
+  if (!Number.isFinite(count) || count < 1 || count > 500) {
+    return sendJson(res, { ok: false, error: 'Укажите число матчей от 1 до 500' }, 400);
+  }
+
+  runtime.gsi = refreshGsiConnection(runtime.gsi);
+  const accountId = String(body?.accountId || runtime.gsi.localAccountId || '').trim();
+  if (!accountId) {
+    return sendJson(res, { ok: false, error: 'Укажите Dota ID' }, 400);
   }
 
   try {
+    const estimatedPages = Math.max(1, Math.ceil(count / 100));
+    runtime.importProgress = { active: true, current: 0, total: estimatedPages };
+    lastBroadcastKey = '';
+    broadcast();
+
     const result = await partyTracker.importRecentMatches({
-      accountId: runtime.gsi.localAccountId,
-      count
+      accountId,
+      count,
+      onHistoryProgress: (current, total) => {
+        runtime.importProgress = { active: true, current, total };
+        lastBroadcastKey = '';
+        broadcast();
+      }
     });
+    activityLog.add(
+      `Импорт для ${accountId}: запрошено ${result.requested}, получено ${result.fetched}, `
+      + `добавлено в очередь ${result.enqueued}, пропущено ${result.skipped}`,
+      { category: 'import', level: 'success' }
+    );
     broadcast();
     sendJson(res, { ok: true, ...result });
   } catch (error) {
+    activityLog.add(
+      `Импорт для ${accountId} не выполнен: ${error.message}`,
+      { category: 'import', level: 'error' }
+    );
+    lastBroadcastKey = '';
+    broadcast();
     sendJson(res, { ok: false, error: error.message }, 400);
+  } finally {
+    runtime.importProgress = { active: false, current: 0, total: 0 };
+    lastBroadcastKey = '';
+    broadcast();
   }
 }
 
@@ -451,10 +496,23 @@ export async function startServer(options = {}) {
 
   activePort = portToUse;
 
+  activityLog.add('Приложение запущено', { category: 'app', level: 'info' });
+
   connectionTimer = setInterval(() => {
     const before = runtime.gsi.connected;
     runtime.gsi = refreshGsiConnection(runtime.gsi);
-    if (before !== runtime.gsi.connected) broadcast();
+    if (before !== runtime.gsi.connected) {
+      if (runtime.gsi.connected) {
+        const account = runtime.gsi.localAccountId
+          ? ` (${runtime.gsi.localDisplayName || runtime.gsi.localAccountId})`
+          : '';
+        activityLog.add(`GSI подключён${account}`, { category: 'gsi', level: 'success' });
+      } else {
+        activityLog.add('GSI отключён', { category: 'gsi', level: 'warn' });
+      }
+      lastBroadcastKey = '';
+      broadcast();
+    }
   }, 5000);
 
   return serverInstance;

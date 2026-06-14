@@ -9,15 +9,20 @@
 </head>
 <body>
   <header class="topbar">
-    <div>
+    <div class="topbar-leading">
+      <button id="openSettings" type="button" class="icon-btn" title="Настройки" aria-label="Настройки">
+        <i class="bi bi-gear"></i>
+      </button>
+      <button id="openActivityLog" type="button" class="icon-btn" title="Журнал действий" aria-label="Журнал действий">
+        <i class="bi bi-journal-text"></i>
+      </button>
+    </div>
+    <div class="topbar-title">
       <h1>Dota2 Party Manager</h1>
       <p class="muted">Статистика побед и поражений с напарниками из пати в ranked</p>
     </div>
     <div class="topbar-status">
       <div id="gsiStatus" class="pill bad">GSI не подключён</div>
-      <button id="openSettings" type="button" class="icon-btn settings-btn" title="Настройки" aria-label="Настройки">
-        <i class="bi bi-gear"></i>
-      </button>
     </div>
   </header>
 
@@ -59,7 +64,7 @@
         </label>
 
         <div class="panel-actions">
-          <button id="importMatches" type="button" disabled title="Доступно при подключённом GSI">Импорт последних матчей</button>
+          <button id="importMatches" type="button">Импорт последних матчей</button>
           <button id="resetStats" type="button" class="danger">Сбросить всю статистику</button>
         </div>
       </div>
@@ -83,6 +88,19 @@
       </div>
     </section>
   </main>
+
+  <dialog id="activityLogDialog">
+    <div id="activityLogPanel">
+      <h3>Журнал действий</h3>
+      <p class="muted">Важные события: OpenDota, очередь матчей, импорт, GSI и сброс статистики.</p>
+      <div id="activityLogList" class="activity-log-list">
+        <div class="activity-log-empty">Пока нет записей</div>
+      </div>
+      <div class="row end">
+        <button type="button" id="activityLogClose" class="primary">Закрыть</button>
+      </div>
+    </div>
+  </dialog>
 
   <dialog id="settingsDialog">
     <form method="dialog" id="settingsForm">
@@ -141,14 +159,18 @@
   <dialog id="importDialog">
     <form method="dialog" id="importForm">
       <h3>Импорт последних матчей</h3>
-      <p class="muted">Последние ranked-матчи текущего аккаунта из OpenDota будут добавлены в очередь. Нерейтинговые и уже учтённые матчи пропускаются.</p>
+      <p class="muted">Последние ranked-матчи из OpenDota будут добавлены в очередь. Нерейтинговые и уже учтённые матчи пропускаются. Для импорта в Dota 2 должна быть включена опция «Expose Public Match Data».</p>
+      <label class="field">
+        <span>Ваш Dota ID</span>
+        <input id="importAccountId" type="text" inputmode="numeric" placeholder="123456789" autocomplete="off">
+      </label>
       <label class="field">
         <span>Количество ranked-матчей</span>
-        <input id="importCount" type="number" min="1" max="100" step="1" value="20">
+        <input id="importCount" type="number" min="1" max="500" step="1" value="20">
       </label>
       <div class="row end">
         <button type="button" id="importCancel">Отмена</button>
-        <button type="submit" class="primary">Добавить в очередь</button>
+        <button id="importSubmit" type="submit" class="primary">Добавить в очередь</button>
       </div>
     </form>
   </dialog>

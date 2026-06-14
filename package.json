@@ -1,6 +1,6 @@
 {
   "name": "dota2-party-manager",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Dota2 Party Manager — статистика побед и поражений с напарниками из пати.",
   "type": "module",
