@@ -92,7 +92,7 @@
   <dialog id="activityLogDialog">
     <div id="activityLogPanel">
       <h3>Журнал действий</h3>
-      <p class="muted">Важные события: OpenDota, очередь матчей, импорт, GSI и сброс статистики.</p>
+      <p class="muted">Важные события: STRATZ, очередь матчей, импорт, GSI и сброс статистики.</p>
       <div id="activityLogList" class="activity-log-list">
         <div class="activity-log-empty">Пока нет записей</div>
       </div>
@@ -105,7 +105,21 @@
   <dialog id="settingsDialog">
     <form method="dialog" id="settingsForm">
       <h3>Настройки</h3>
-      <p class="muted">Прокси для запросов к OpenDota API. Оставьте поля пустыми, чтобы обращаться напрямую.</p>
+      <label class="field">
+        <span class="field-label">
+          STRATZ API token
+          <button type="button" class="field-hint" aria-label="Где получить STRATZ API token">
+            ?
+            <span class="field-hint-tooltip" role="tooltip">
+              Бесплатный токен выдаётся на
+              <a href="https://stratz.com/api" target="_blank" rel="noopener noreferrer">stratz.com/api</a>:
+              войдите в аккаунт STRATZ и скопируйте API token в поле ниже.
+            </span>
+          </button>
+        </span>
+        <input id="stratzApiToken" type="password" placeholder="Получите на stratz.com/api" autocomplete="off">
+      </label>
+      <p class="muted">Прокси для запросов к STRATZ API. Оставьте поля пустыми, чтобы обращаться напрямую.</p>
       <div class="field-row field-row-70-30">
         <label class="field">
           <span>IP прокси</span>
@@ -159,7 +173,7 @@
   <dialog id="importDialog">
     <form method="dialog" id="importForm">
       <h3>Импорт последних матчей</h3>
-      <p class="muted">Последние ranked-матчи из OpenDota будут добавлены в очередь. Нерейтинговые и уже учтённые матчи пропускаются. Для импорта в Dota 2 должна быть включена опция «Expose Public Match Data».</p>
+      <p class="muted">Последние ranked-матчи из STRATZ будут добавлены в очередь. Нерейтинговые и уже учтённые матчи пропускаются. Нужен STRATZ API token и опция «Expose Public Match Data» в Dota 2.</p>
       <label class="field">
         <span>Ваш Dota ID</span>
         <input id="importAccountId" type="text" inputmode="numeric" placeholder="123456789" autocomplete="off">

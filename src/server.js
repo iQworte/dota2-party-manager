@@ -11,7 +11,8 @@ import {
   refreshGsiConnection
 } from './gsi-handler.js';
 import { PartyTracker } from './party-tracker.js';
-import { normalizeProxyConfig } from './opendota-fetch.js';
+import { normalizeProxyConfig } from './proxy-fetch.js';
+import { StratzApi, normalizeStratzConfig } from './stratz-api.js';
 import { ActivityLog } from './activity-log.js';
 import { StatsStore } from './stats-store.js';
 
@@ -32,7 +33,8 @@ const defaultConfig = {
     cfgDir: '',
     detectionSource: ''
   },
-  proxy: normalizeProxyConfig()
+  proxy: normalizeProxyConfig(),
+  stratz: normalizeStratzConfig()
 };
 
 const runtime = {
@@ -51,10 +53,15 @@ const activityLog = new ActivityLog({
     broadcast();
   }
 });
+const stratzApi = new StratzApi({
+  getConfig: () => runtime.config.stratz,
+  getProxyConfig: () => runtime.config.proxy,
+  activityLog
+});
 const partyTracker = new PartyTracker({
   statsStore,
   onChange: () => broadcast(),
-  getProxyConfig: () => runtime.config.proxy,
+  stratzApi,
   activityLog
 });
 
@@ -100,6 +107,7 @@ function normalizeConfig(config) {
   next.dota.cfgDir = String(next.dota.cfgDir || '');
   next.dota.detectionSource = String(next.dota.detectionSource || '');
   next.proxy = normalizeProxyConfig(next.proxy);
+  next.stratz = normalizeStratzConfig(next.stratz);
   return next;
 }
 
@@ -319,6 +327,9 @@ async function updateConfigApi(req, res) {
   }
   if (body?.proxy) {
     runtime.config.proxy = normalizeProxyConfig(body.proxy);
+  }
+  if (body?.stratz) {
+    runtime.config.stratz = normalizeStratzConfig(body.stratz);
   }
   await persistConfig();
   broadcast();

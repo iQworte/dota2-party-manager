@@ -26,40 +26,39 @@ export function buildProxyUrl(proxy) {
   return `http://${normalized.host}:${port}`;
 }
 
-function requestWithAgent(url, options, agent) {
+export function postJson(url, { headers = {}, body, proxyConfig, timeoutMs = 30000 } = {}) {
+  const proxyUrl = buildProxyUrl(proxyConfig);
+  const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+  const payload = typeof body === 'string' ? body : JSON.stringify(body);
+
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const requestFn = parsed.protocol === 'https:' ? httpsRequest : httpRequest;
-
     const req = requestFn(parsed, {
-      method: options.method || 'GET',
-      headers: options.headers,
+      method: 'POST',
+      headers: {
+        ...headers,
+        'content-length': String(Buffer.byteLength(payload))
+      },
       agent
     }, (res) => {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
-        const body = Buffer.concat(chunks);
+        const text = Buffer.concat(chunks).toString('utf8');
         resolve({
           ok: res.statusCode >= 200 && res.statusCode < 300,
           status: res.statusCode,
-          json: async () => JSON.parse(body.toString('utf8')),
-          text: async () => body.toString('utf8')
+          text: async () => text,
+          json: async () => JSON.parse(text)
         });
       });
     });
 
     req.on('error', reject);
-    req.end();
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error('Request timeout'));
+    });
+    req.end(payload);
   });
-}
-
-export function createOpenDotaFetch(proxyConfig) {
-  const proxyUrl = buildProxyUrl(proxyConfig);
-  if (!proxyUrl) {
-    return (url, options) => fetch(url, options);
-  }
-
-  const agent = new HttpsProxyAgent(proxyUrl);
-  return (url, options) => requestWithAgent(url, options, agent);
 }

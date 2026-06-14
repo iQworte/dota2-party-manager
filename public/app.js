@@ -31,6 +31,7 @@ const els = {
   openSettings: document.querySelector('#openSettings'),
   settingsDialog: document.querySelector('#settingsDialog'),
   settingsForm: document.querySelector('#settingsForm'),
+  stratzApiToken: document.querySelector('#stratzApiToken'),
   proxyHost: document.querySelector('#proxyHost'),
   proxyPort: document.querySelector('#proxyPort'),
   proxyLogin: document.querySelector('#proxyLogin'),
@@ -403,9 +404,9 @@ els.importForm.addEventListener('submit', async (event) => {
       + `Запрошено: ${result.requested}\n`
       + `Добавлено в очередь: ${result.enqueued}\n`
       + `Пропущено (уже учтены): ${result.skipped}\n`
-      + `Получено из OpenDota: ${result.fetched}`
+      + `Получено из STRATZ: ${result.fetched}`
       + (result.fetched < result.requested
-        ? '\n\nВ OpenDota найдено меньше ranked-матчей, чем запрошено.'
+        ? '\n\nВ STRATZ найдено меньше ranked-матчей, чем запрошено.'
         : '')
       + (result.fetched === 0
         ? '\n\nЕсли матчей нет, проверьте, что в Dota 2 включена опция «Expose Public Match Data» (Настройки → Социальное).'
@@ -423,15 +424,16 @@ els.resetStats.addEventListener('click', () => {
   els.resetDialog.showModal();
 });
 
-function fillSettingsForm(proxy = {}) {
-  els.proxyHost.value = proxy.host || '';
-  els.proxyPort.value = proxy.port || '';
-  els.proxyLogin.value = proxy.login || '';
-  els.proxyPass.value = proxy.pass || '';
+function fillSettingsForm(config = {}) {
+  els.stratzApiToken.value = config.stratz?.apiToken || '';
+  els.proxyHost.value = config.proxy?.host || '';
+  els.proxyPort.value = config.proxy?.port || '';
+  els.proxyLogin.value = config.proxy?.login || '';
+  els.proxyPass.value = config.proxy?.pass || '';
 }
 
 els.openSettings.addEventListener('click', () => {
-  fillSettingsForm(snapshot?.config?.proxy);
+  fillSettingsForm(snapshot?.config);
   els.settingsDialog.showModal();
 });
 
@@ -475,6 +477,7 @@ els.settingsForm.addEventListener('submit', async (event) => {
 
   try {
     await api('/api/config', {
+      stratz: { apiToken: els.stratzApiToken.value.trim() },
       proxy: { host, port, login, pass }
     });
     els.settingsDialog.close();

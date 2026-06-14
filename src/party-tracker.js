@@ -1,31 +1,34 @@
 import { normalizeAccountId } from './account-id.js';
-import { createOpenDotaFetch } from './opendota-fetch.js';
 
-const OPENDOTA_MATCH_URL = 'https://api.opendota.com/api/matches';
-const OPENDOTA_PLAYER_MATCHES_URL = 'https://api.opendota.com/api/players';
-const OPENDOTA_RANKED_LOBBY_TYPE = 7;
 const MAX_IMPORT_MATCHES = 500;
 const MATCHES_PAGE_SIZE = 100;
 const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000];
 
 function isRankedMatch(match) {
-  return Number(match?.lobby_type) === OPENDOTA_RANKED_LOBBY_TYPE;
+  return Number(match?.lobby_type) === 7;
+}
+
+function readPartyId(player) {
+  const raw = player?.party_id ?? player?.partyId;
+  if (raw == null || raw === '') return null;
+  const id = Number(raw);
+  return Number.isFinite(id) ? id : null;
+}
+
+function isSameTeam(player, isRadiant) {
+  return Boolean(player.isRadiant ?? player.player_slot < 128) === isRadiant;
 }
 
 export class PartyTracker {
-  constructor({ statsStore, onChange, getProxyConfig, activityLog }) {
+  constructor({ statsStore, onChange, stratzApi, activityLog }) {
     this.statsStore = statsStore;
     this.onChange = onChange || (() => {});
-    this.getProxyConfig = getProxyConfig || (() => null);
+    this.stratzApi = stratzApi;
     this.activityLog = activityLog || null;
     this.pendingMatches = new Map();
     this.lastProcessedMatchId = null;
     this.lastProcessedAt = null;
     this.lastError = null;
-  }
-
-  fetchOpenDota(url, options) {
-    return createOpenDotaFetch(this.getProxyConfig())(url, options);
   }
 
   restoreFromStore() {
@@ -70,16 +73,9 @@ export class PartyTracker {
     }
 
     const requested = Math.min(Math.max(1, Math.floor(Number(count) || 1)), MAX_IMPORT_MATCHES);
-    const fetchFn = (url, options) => this.fetchOpenDota(url, options);
-    const playerProfile = await fetchPlayerProfile(id, fetchFn, this.activityLog);
-    const historyUnavailable = isMatchHistoryUnavailable(playerProfile);
-    const matches = await fetchRankedPlayerMatchHistory(
-      id,
-      requested,
-      fetchFn,
-      this.activityLog,
-      onHistoryProgress
-    );
+    const playerProfile = await this.stratzApi.fetchPlayerProfile(id);
+    const historyUnavailable = this.stratzApi.isHistoryUnavailable(playerProfile);
+    const matches = await this.fetchRankedPlayerMatchHistory(id, requested, onHistoryProgress);
 
     if (!matches.length && historyUnavailable) {
       throw new Error(
@@ -100,8 +96,9 @@ export class PartyTracker {
         continue;
       }
 
-      const isRadiant = Number(match.player_slot) < 128;
-      const won = Boolean(match.radiant_win) === isRadiant;
+      const won = match._won;
+      if (won !== true && won !== false) continue;
+
       this.enqueueMatch({
         matchId,
         localAccountId: String(id),
@@ -174,7 +171,7 @@ export class PartyTracker {
       item.attempts += 1;
 
       try {
-        const outcome = await processMatch(item, (url, options) => this.fetchOpenDota(url, options), this.activityLog);
+        const outcome = await this.processMatch(item);
         if (outcome.status === 'processed') {
           if (outcome.allies.length) {
             this.statsStore.recordPartyResult({
@@ -209,8 +206,8 @@ export class PartyTracker {
         if (outcome.status === 'retry') {
           if (item.attempts === 1) {
             this.activityLog?.add(
-              `OpenDota: матч ${matchId} ещё не готов, повтор запроса позже`,
-              { category: 'opendota', level: 'warn' }
+              `STRATZ: матч ${matchId} ещё не готов, повтор запроса позже`,
+              { category: 'stratz', level: 'warn' }
             );
           }
           const delay = RETRY_DELAYS_MS[Math.min(item.attempts - 1, RETRY_DELAYS_MS.length - 1)];
@@ -230,8 +227,8 @@ export class PartyTracker {
         this.lastError = error.message;
         if (item.attempts === 1) {
           this.activityLog?.add(
-            `OpenDota: ошибка обработки матча ${matchId} — ${error.message}`,
-            { category: 'opendota', level: 'error' }
+            `STRATZ: ошибка обработки матча ${matchId} — ${error.message}`,
+            { category: 'stratz', level: 'error' }
           );
         }
         const delay = RETRY_DELAYS_MS[Math.min(item.attempts - 1, RETRY_DELAYS_MS.length - 1)];
@@ -264,166 +261,113 @@ export class PartyTracker {
       lastError: this.lastError
     };
   }
-}
 
-function shortOpenDotaPath(url) {
-  return String(url).replace('https://api.opendota.com/api/', '');
-}
+  async processMatch(item) {
+    const response = await this.stratzApi.fetchMatch(item.matchId);
+    if (response.status === 'retry') {
+      return { status: 'retry' };
+    }
 
-async function openDotaGet(url, fetchFn, activityLog) {
-  const shortPath = shortOpenDotaPath(url);
-  const response = await fetchFn(url, { headers: { accept: 'application/json' } });
-  const status = response.status;
+    const match = response.match;
+    const players = Array.isArray(match?.players) ? match.players : [];
+    if (!players.length) {
+      return { status: 'retry' };
+    }
 
-  if (status === 404 || status === 202) {
-    activityLog?.add(`OpenDota GET ${shortPath}: HTTP ${status}`, { category: 'opendota', level: 'warn' });
-    return { response, data: null, status };
-  }
+    if (!isRankedMatch(match)) {
+      return { status: 'processed', allies: [] };
+    }
 
-  if (!response.ok) {
-    activityLog?.add(`OpenDota GET ${shortPath}: HTTP ${status}`, { category: 'opendota', level: 'error' });
-    throw new Error(`OpenDota HTTP ${status}`);
-  }
+    const localAccountId = normalizeAccountId(item.localAccountId);
+    const localPlayer = players.find((player) => normalizeAccountId(player.account_id) === localAccountId);
+    if (!localPlayer) {
+      return { status: 'done', allies: [] };
+    }
 
-  const data = await response.json();
-  let detail = `HTTP ${status}`;
+    const partyId = readPartyId(localPlayer);
+    const isRadiant = Boolean(localPlayer.isRadiant ?? localPlayer.player_slot < 128);
 
-  if (Array.isArray(data)) {
-    detail += `, записей: ${data.length}`;
-  } else if (data?.profile?.account_id) {
-    detail += `, аккаунт ${data.profile.account_id}`;
-  } else if (data?.match_id) {
-    detail += `, матч ${data.match_id}, игроков: ${Array.isArray(data.players) ? data.players.length : 0}`;
-  }
+    if (partyId === null) {
+      return { status: 'processed', allies: [] };
+    }
 
-  activityLog?.add(`OpenDota GET ${shortPath}: ${detail}`, { category: 'opendota', level: 'success' });
-  return { response, data, status };
-}
+    const matchPlayedAt = Number.isFinite(Number(match.start_time))
+      ? new Date(Number(match.start_time) * 1000).toISOString()
+      : null;
 
-async function processMatch(item, fetchFn, activityLog) {
-  const { data: match, status } = await openDotaGet(
-    `${OPENDOTA_MATCH_URL}/${item.matchId}`,
-    fetchFn,
-    activityLog
-  );
-
-  if (status === 404 || status === 202) {
-    return { status: 'retry' };
-  }
-
-  const players = Array.isArray(match?.players) ? match.players : [];
-  if (!players.length) {
-    return { status: 'retry' };
-  }
-
-  if (!isRankedMatch(match)) {
-    return { status: 'processed', allies: [] };
-  }
-
-  const localAccountId = normalizeAccountId(item.localAccountId);
-  const localPlayer = players.find((player) => normalizeAccountId(player.account_id) === localAccountId);
-  if (!localPlayer) {
-    return { status: 'done', allies: [] };
-  }
-
-  const partyId = Number(localPlayer.party_id);
-  const partySize = Number(localPlayer.party_size);
-  const isRadiant = Boolean(localPlayer.isRadiant ?? localPlayer.player_slot < 128);
-
-  if (!Number.isFinite(partySize) || partySize <= 1) {
-    return { status: 'processed', allies: [] };
-  }
-
-  if (!Number.isFinite(partyId)) {
-    return { status: 'processed', allies: [] };
-  }
-
-  const matchPlayedAt = Number.isFinite(Number(match.start_time))
-    ? new Date(Number(match.start_time) * 1000).toISOString()
-    : null;
-
-  const allies = players
-    .filter((player) => {
+    const teammates = players.filter((player) => {
       const accountId = normalizeAccountId(player.account_id);
       if (!accountId || accountId === localAccountId) return false;
-      const sameSide = Boolean(player.isRadiant ?? player.player_slot < 128) === isRadiant;
-      if (!sameSide) return false;
-      return Number(player.party_id) === partyId;
-    })
-    .map((player) => ({
-      accountId: normalizeAccountId(player.account_id),
-      displayName: String(player.personaname || player.name || '').trim()
-    }))
-    .filter((player) => player.accountId);
+      return isSameTeam(player, isRadiant);
+    });
 
-  return { status: 'processed', allies, matchPlayedAt };
-}
+    const allies = teammates
+      .filter((player) => readPartyId(player) === partyId)
+      .map((player) => ({
+        accountId: normalizeAccountId(player.account_id),
+        displayName: String(player.personaname || player.name || '').trim()
+      }))
+      .filter((player) => player.accountId);
 
-async function fetchPlayerProfile(accountId, fetchFn, activityLog) {
-  const { data, status } = await openDotaGet(
-    `${OPENDOTA_PLAYER_MATCHES_URL}/${accountId}`,
-    fetchFn,
-    activityLog
-  );
+    if (!allies.length) {
+      const teammatesHavePartyData = teammates.some((player) => readPartyId(player) !== null);
+      if (!teammatesHavePartyData) {
+        return { status: 'retry' };
+      }
+      return { status: 'processed', allies: [] };
+    }
 
-  if (status === 404) {
-    throw new Error('Игрок с таким Dota ID не найден в OpenDota');
+    return { status: 'processed', allies, matchPlayedAt };
   }
 
-  return data;
-}
+  async fetchRankedPlayerMatchHistory(accountId, count, onProgress) {
+    const ranked = [];
+    let skip = 0;
+    let completed = 0;
+    let total = Math.max(1, Math.ceil(count / MATCHES_PAGE_SIZE));
 
-function isMatchHistoryUnavailable(player) {
-  const profile = player?.profile && typeof player.profile === 'object' ? player.profile : {};
-  if (profile.is_pro) return false;
-  return Boolean(profile.fh_unavailable);
-}
+    const report = () => onProgress?.(completed, total);
 
-async function fetchRankedPlayerMatchHistory(accountId, count, fetchFn, activityLog, onProgress) {
-  const ranked = [];
-  let offset = 0;
-  let completed = 0;
-  let total = Math.max(1, Math.ceil(count / MATCHES_PAGE_SIZE));
-
-  const report = () => onProgress?.(completed, total);
-  report();
-
-  while (ranked.length < count) {
-    const { data: batch } = await openDotaGet(
-      `${OPENDOTA_PLAYER_MATCHES_URL}/${accountId}/matches?limit=${MATCHES_PAGE_SIZE}&offset=${offset}`,
-      fetchFn,
-      activityLog
-    );
-
-    completed += 1;
-
-    if (!Array.isArray(batch) || batch.length === 0) {
-      total = completed;
-      report();
-      break;
-    }
-
-    for (const match of batch) {
-      if (!isRankedMatch(match)) continue;
-      ranked.push(match);
-      if (ranked.length >= count) break;
-    }
-
-    offset += batch.length;
-
-    if (ranked.length >= count) {
-      total = completed;
-      report();
-      break;
-    }
-
-    if (batch.length === MATCHES_PAGE_SIZE) {
-      total = Math.max(total, completed + 1);
-    } else {
-      total = completed;
-    }
     report();
-  }
 
-  return ranked.slice(0, count);
+    while (ranked.length < count) {
+      const { matches: batch } = await this.stratzApi.fetchPlayerMatchBatch(
+        accountId,
+        MATCHES_PAGE_SIZE,
+        skip
+      );
+
+      completed += 1;
+
+      if (!Array.isArray(batch) || batch.length === 0) {
+        total = completed;
+        report();
+        break;
+      }
+
+      for (const match of batch) {
+        const mapped = this.stratzApi.mapHistoryMatch(match, accountId);
+        if (mapped._won !== true && mapped._won !== false) continue;
+        ranked.push(mapped);
+        if (ranked.length >= count) break;
+      }
+
+      skip += batch.length;
+
+      if (ranked.length >= count) {
+        total = completed;
+        report();
+        break;
+      }
+
+      if (batch.length === MATCHES_PAGE_SIZE) {
+        total = Math.max(total, completed + 1);
+      } else {
+        total = completed;
+      }
+      report();
+    }
+
+    return ranked.slice(0, count);
+  }
 }

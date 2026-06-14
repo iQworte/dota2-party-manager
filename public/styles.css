@@ -168,6 +168,78 @@ h1, h2, h3, p {
   color: var(--muted);
 }
 
+.field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field-hint {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.field-hint:hover,
+.field-hint:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(77, 163, 255, 0.08);
+}
+
+.field-hint-tooltip {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 260px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: #222b36;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  z-index: 20;
+}
+
+.field-hint:hover .field-hint-tooltip,
+.field-hint:focus-visible .field-hint-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
+.field-hint-tooltip a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.field-hint-tooltip a:hover {
+  text-decoration: underline;
+}
+
 .topbar-status {
   display: flex;
   align-items: center;
